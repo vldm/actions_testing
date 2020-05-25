@@ -1,0 +1,132 @@
+name: CI
+on: [push, pull_request]
+
+jobs:
+  test:
+    name: Test
+    env: 
+      sccache_version: 0.2.12
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        build: [ubuntu, macos, win]
+        include:
+          - build: ubuntu
+            os: ubuntu-16.04
+            target: x86_64-unknown-linux-gnu
+            sccache_target: x86_64-unknown-linux-musl
+          - build: macos
+            os: macos-latest
+            target: x86_64-apple-darwin
+            sccache_target: x86_64-apple-darwin
+          - build: win
+            os: windows-latest
+            target: x86_64-pc-windows-gnu
+            sccache_target: x86_64-pc-windows-msvc
+    steps:
+      # Checkout the source code
+      - uses: actions/checkout@v2
+
+      # Install Debian libs
+      - name: Install missing packages
+        if: matrix.build == 'debian'
+        run: |
+          sudo apt-get install -y binutils-dev build-essential libc6-dev-i386 m4 clang curl git
+          sudo apt-get install -y gzip libiberty-dev libssl-dev openjdk-8-jdk-headless
+          sudo apt-get install pkg-config tar zip zlib1g-dev
+      
+      # 
+      # Install sccache
+      #
+      - name: Set sccache triple
+        run: echo '::set-env name=SCCACHE_TRIPLE::sccache-${{ env.sccache_version }}-${{ matrix.sccache_target }}'
+
+      - name: Download sccache
+        uses: carlosperate/download-file-action@v1.0.3
+        with:
+          file-url: 'https://github.com/mozilla/sccache/releases/download/${{ env.sccache_version }}/sccache-${{ env.sccache_version }}-${{ matrix.sccache_target }}.tar.gz'
+      
+      - name: Unpack sccache gz
+        uses: DuckSoft/extract-7z-action@v1.0
+        with:
+          pathSource: '${{env.SCCACHE_TRIPLE}}.tar.gz'
+          pathTarget: './'
+
+      - name: Unpack sccache tar
+        uses: DuckSoft/extract-7z-action@v1.0
+        with:
+          pathSource: '${{env.SCCACHE_TRIPLE}}.tar'
+          pathTarget: './sccache'
+
+      - name: Fix Premission on unix
+        run: chmod a+x ./sccache/${{env.SCCACHE_TRIPLE}}/sccache
+        if: matrix.build != 'win'
+
+      - name: Test sccahe
+        run: ./sccache/${{env.SCCACHE_TRIPLE}}/sccache --version
+
+      - name: Set sccache triple
+        run: echo '::set-env name=RUSTC_WRAPPER::./sccache/${{env.SCCACHE_TRIPLE}}/sccache'
+
+      - name: Install the Rust toolchain
+        uses: actions-rs/toolchain@v1
+
+
+# # Set these for the following build stages
+# # export CFLAGS="-O3 -mtune=generic -g -fexceptions -funwind-tables -fno-omit-frame-pointer -fPIC"
+# # export CXXFLAGS="$CFLAGS"
+
+          # - name: Cache cargo registry
+          #   uses: actions/cache@v1
+          #   with:
+          #     path: ~/.cargo/registry
+          #     key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          #     restore-keys: |
+          #           ${{ runner.os }}-cargo-registry-
+          # - name: Cache cargo index
+          #   uses: actions/cache@v1
+          #   with:
+          #     path: ~/.cargo/git
+          #     key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+          #     restore-keys: |
+          #           ${{ runner.os }}-cargo-index-
+          # - name: Cache cargo build
+          #   uses: actions/cache@v1
+          #   with:
+          #     path: target
+          #     key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+          #     restore-keys: |
+          #           ${{ runner.os }}-cargo-build-target-
+
+
+#       - name: Build all
+#         uses: actions-rs/cargo@v1
+#         with:
+#           command: build
+#           args: --all-features --all
+
+# ### These should be in a separate job 
+
+      - name: Test all
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --all-features --all
+
+#       - name: Clippy
+#         uses: actions-rs/cargo@v1
+#         with:
+#           command: clippy
+#           args: -- -D warnings          
+
+#       - name: Audit
+#         uses: actions-rs/cargo@v1
+#         with:
+#           command: audit
+#           args: -- -D warnings          
+
+#       - name: Check
+#         uses: actions-rs/cargo@v1
+#         with:
+#           command: fmt
+#           args: --all -- --check
